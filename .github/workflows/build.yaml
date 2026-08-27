@@ -1,12 +1,15 @@
 name: Build release binaries
 on:
- # Trigger manually
- workflow_dispatch:
-     inputs:
-       version:
-         description: "Version fo tailscale to build"
-         default: v1.28.0
-         required: true
+  # Trigger manually, optionally pinning a specific version (blank = auto-detect latest stable)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version of tailscale to build (blank = auto-detect latest stable release)"
+        default: ""
+        required: false
+  # Daily check for a new upstream stable release
+  schedule:
+    - cron: '0 6 * * *'
 
 env:
   GOOS: linux
@@ -14,44 +17,66 @@ env:
   GOARM: 5
 
 jobs:
+  check:
+    name: Check for new release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      needed: ${{ steps.resolve.outputs.needed }}
+    steps:
+      - name: Resolve target version and whether a build is needed
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(gh api repos/tailscale/tailscale/releases/latest --jq .tag_name)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "$VERSION already released in this repo, skipping build"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$VERSION not yet released here, build needed"
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build job
+    needs: check
+    if: needs.check.outputs.needed == 'true'
     runs-on: ubuntu-latest
     steps:
-     - name: Echo input version
-       run: 'echo version=${{ inputs.version }}'
-     - uses: actions/setup-go@v3
-       with:
-         go-version: '^1.18.3' # The Go version to download (if necessary) and use.
-     - run: go version
-     - name: Download tailscale repo
-       run: 'curl --location --output tailscale-src.tar.gz https://github.com/tailscale/tailscale/archive/refs/tags/${{ inputs.version }}.tar.gz'
-     - name: Extract
-       run: 'ls -al && tar xvzf tailscale-src.tar.gz --strip-components 1'
-     - name: Build tailscaled without DRAWF
-       run: 'mkdir -p build && go build -ldflags="-s -w" -o build/tailscaled-linux-armv5 ./cmd/tailscaled'
-     - name: Build tailscale
-       run: 'mkdir -p build && go build -ldflags="-s -w" -o build/tailscale-linux-armv5 ./cmd/tailscale'
-     - name: List build binaries
-       run: 'ls -al build/'
-     - name: Create release
-       id: create-release
-       uses: actions/create-release@v1
-       env:
-         GITHUB_TOKEN: ${{ github.token }}
-       with:
-         tag_name: ${{ inputs.version }}
-         release_name: ${{ inputs.version }}
-         body: Binaries for ${{ inputs.version }}
-     - name: Release the binaries
-       uses: skx/github-action-publish-binaries@release-2.0
-       env:
-         GITHUB_TOKEN: ${{ github.token }}
-       with:
-         releaseId: ${{ steps.create-release.outputs.id }}
-         args: build/*
-
-
-
-
-
+      - name: Echo target version
+        run: 'echo version=${{ needs.check.outputs.version }}'
+      - uses: actions/setup-go@v3
+        with:
+          go-version: '^1.18.3' # The Go version to download (if necessary) and use.
+      - run: go version
+      - name: Download tailscale repo
+        run: 'curl --location --output tailscale-src.tar.gz https://github.com/tailscale/tailscale/archive/refs/tags/${{ needs.check.outputs.version }}.tar.gz'
+      - name: Extract
+        run: 'ls -al && tar xvzf tailscale-src.tar.gz --strip-components 1'
+      - name: Build tailscaled without DRAWF
+        run: 'mkdir -p build && go build -ldflags="-s -w" -o build/tailscaled-linux-armv5 ./cmd/tailscaled'
+      - name: Build tailscale
+        run: 'mkdir -p build && go build -ldflags="-s -w" -o build/tailscale-linux-armv5 ./cmd/tailscale'
+      - name: List build binaries
+        run: 'ls -al build/'
+      - name: Create release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: ${{ needs.check.outputs.version }}
+          release_name: ${{ needs.check.outputs.version }}
+          body: Binaries for ${{ needs.check.outputs.version }}
+      - name: Release the binaries
+        uses: skx/github-action-publish-binaries@release-2.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          releaseId: ${{ steps.create-release.outputs.id }}
+          args: build/*
