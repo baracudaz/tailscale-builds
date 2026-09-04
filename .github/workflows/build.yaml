@@ -15,6 +15,20 @@ env:
   GOOS: linux
   GOARCH: arm
   GOARM: 5
+  # Tailscale gates whole subsystems behind ts_omit_* build tags (feature/featuretags in
+  # their source) rather than relying on linker dead-code elimination, because these
+  # features self-register at init time — so the linker keeps their idle goroutines/state
+  # resident unless explicitly told to drop them. This box (Iomega ix2-dl, 256MB RAM) is a
+  # plain tailnet peer only: no MagicDNS, no `tailscale ssh` (uses Debian's own sshd
+  # instead), no Taildrop/Serve/Funnel, no exit-node/subnet-router, no desktop/cloud/MDM
+  # integration, no log uploading (see TS_NO_LOGS_NO_SUPPORT in ansible/roles/tailscale).
+  # Kept in: osrouter/iptables/portmapper (core Linux routing + NAT traversal),
+  # listenrawdisco (NAT traversal robustness), sdnotify (the systemd unit uses
+  # Type=notify), health/ipnbus/doctor/cliconndiag/cachenetmap (status/diagnostics on a
+  # remote headless box), unixsocketidentity (LocalAPI access control), tailnetlock (only
+  # matters if Tailnet Lock is ever turned on — cheap to keep either way), ace (undocumented
+  # enough to risk omitting).
+  BUILD_TAGS: "ts_omit_acme,ts_omit_advertiseexitnode,ts_omit_advertiseroutes,ts_omit_appconnectors,ts_omit_aws,ts_omit_bakedroots,ts_omit_bird,ts_omit_c2n,ts_omit_captiveportal,ts_omit_capture,ts_omit_clientmetrics,ts_omit_clientupdate,ts_omit_cloud,ts_omit_colorable,ts_omit_completion,ts_omit_completion_scripts,ts_omit_conn25,ts_omit_dbus,ts_omit_debug,ts_omit_debugeventbus,ts_omit_debugportmapper,ts_omit_desktop_sessions,ts_omit_dns,ts_omit_drive,ts_omit_favorites,ts_omit_flashappliance,ts_omit_gro,ts_omit_hujsonconf,ts_omit_identityfederation,ts_omit_kube,ts_omit_linkspeed,ts_omit_linuxdnsfight,ts_omit_logtail,ts_omit_netlog,ts_omit_netstack,ts_omit_networkmanager,ts_omit_oauthkey,ts_omit_outboundproxy,ts_omit_peerapiclient,ts_omit_peerapiserver,ts_omit_portlist,ts_omit_posture,ts_omit_qrcodes,ts_omit_relayserver,ts_omit_remoteconfig,ts_omit_resolved,ts_omit_routecheck,ts_omit_runtimemetrics,ts_omit_serve,ts_omit_serviceclientprefs,ts_omit_ssh,ts_omit_synology,ts_omit_syslog,ts_omit_syspolicy,ts_omit_systray,ts_omit_taildrop,ts_omit_tap,ts_omit_tpm,ts_omit_tundevstats,ts_omit_useexitnode,ts_omit_useproxy,ts_omit_useroutes,ts_omit_usermetrics,ts_omit_wakeonlan,ts_omit_webbrowser,ts_omit_webclient"
 
 jobs:
   check:
@@ -59,9 +73,9 @@ jobs:
       - name: Extract
         run: 'ls -al && tar xvzf tailscale-src.tar.gz --strip-components 1'
       - name: Build tailscaled without DRAWF
-        run: 'mkdir -p build && go build -ldflags="-s -w" -o build/tailscaled-linux-armv5 ./cmd/tailscaled'
+        run: 'mkdir -p build && go build -tags "$BUILD_TAGS" -ldflags="-s -w" -o build/tailscaled-linux-armv5 ./cmd/tailscaled'
       - name: Build tailscale
-        run: 'mkdir -p build && go build -ldflags="-s -w" -o build/tailscale-linux-armv5 ./cmd/tailscale'
+        run: 'mkdir -p build && go build -tags "$BUILD_TAGS" -ldflags="-s -w" -o build/tailscale-linux-armv5 ./cmd/tailscale'
       - name: List build binaries
         run: 'ls -al build/'
       - name: Create release
