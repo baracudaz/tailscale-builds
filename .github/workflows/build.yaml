@@ -78,19 +78,12 @@ jobs:
         run: 'mkdir -p build && go build -tags "$BUILD_TAGS" -ldflags="-s -w" -o build/tailscale-linux-armv5 ./cmd/tailscale'
       - name: List build binaries
         run: 'ls -al build/'
-      - name: Create release
-        id: create-release
-        uses: actions/create-release@v1
+      - name: Create release and upload binaries
+        uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           tag_name: ${{ needs.check.outputs.version }}
-          release_name: ${{ needs.check.outputs.version }}
+          name: ${{ needs.check.outputs.version }}
           body: Binaries for ${{ needs.check.outputs.version }}
-      - name: Release the binaries
-        uses: skx/github-action-publish-binaries@release-2.0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          releaseId: ${{ steps.create-release.outputs.id }}
-          args: build/*
+          files: build/*
